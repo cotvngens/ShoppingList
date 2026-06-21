@@ -5,9 +5,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +19,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -39,6 +46,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +64,8 @@ import com.example.shoppinglist.ui.theme.GlowPurpleDark
 import com.example.shoppinglist.ui.theme.GlowPurpleLight
 import com.example.shoppinglist.ui.theme.LightBackground
 import com.example.shoppinglist.ui.theme.ShoppingListTheme
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -236,34 +246,102 @@ fun ShoppingList(
                     items = items,
                     key = { it.name }
                 ) { item ->
-                    val index = items.indexOf(item)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (isDark) Color.White.copy(alpha = 0.05f)
-                                else Color.White.copy(alpha = 0.6f)
-                            )
-                            .clickable { items[index] = ShoppingItem(item.name, !item.checked) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = item.name,
-                            fontSize = 16.sp,
-                            modifier = Modifier.weight(1f),
-                            color = if (item.checked)
-                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
-                            else
-                                MaterialTheme.colorScheme.onBackground,
-                            textDecoration = if (item.checked) TextDecoration.LineThrough
-                            else TextDecoration.None
-                        )
-                    }
+                    SwipeToDeleteItem(
+                        item = item,
+                        onToggle = {
+                            val index = items.indexOf(item)
+                            items[index] = item.copy(checked = !item.checked)
+                        },
+                        onDelete = {
+                            items.remove(item)
+                        }
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun SwipeToDeleteItem(
+    item: ShoppingItem,
+    onDelete: () -> Unit,
+    onToggle: () -> Unit,
+) {
+    val offsetX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+
+    val maxSwipe = -300f
+    val triggerSwipe = -150f
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+
+        val progress = (offsetX.value / maxSwipe).coerceIn(0f, 1f)
+
+        Icon(
+            imageVector = Icons.Default.Delete,
+            contentDescription = "Delete",
+            tint = Color.White.copy(alpha = progress),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 24.dp)
+        )
+
+        Row(
+            modifier = Modifier
+                .offset { androidx.compose.ui.unit.IntOffset(offsetX.value.toInt(), 0) }
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (isSystemInDarkTheme())
+                        Color.White.copy(alpha = 0.05f)
+                    else
+                        Color.White.copy(alpha = 0.6f)
+                )
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+
+                            scope.launch {
+                                val newValue =
+                                    (offsetX.value + dragAmount)
+                                        .coerceIn(maxSwipe, 0f)
+
+                                offsetX.snapTo(newValue)
+                            }
+                        },
+                        onDragEnd = {
+                            if (offsetX.value < triggerSwipe) {
+                                scope.launch {
+                                    offsetX.animateTo(
+                                        targetValue = -1000f,
+                                        animationSpec = tween(250)
+                                    )
+                                    onDelete()
+                                }
+                            } else {
+                                scope.launch {
+                                    offsetX.animateTo(0f, tween(200))
+                                }
+                            }
+                        }
+                    )
+                }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = item.name,
+                modifier = Modifier.weight(1f),
+                textDecoration =
+                    if (item.checked) TextDecoration.LineThrough
+                    else TextDecoration.None,
+                color = MaterialTheme.colorScheme.onBackground.copy(
+                    alpha = if (item.checked) 0.4f else 1f
+                )
+            )
         }
     }
 }
